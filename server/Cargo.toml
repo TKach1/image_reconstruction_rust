@@ -7,17 +7,19 @@ edition = "2021"
 common = { path = "../common" }
 tokio = { version = "1", features = ["full"] }
 axum = "0.7"
-serde = "1.0"
 serde_json = "1.0"
 log = "0.4"
 env_logger = "0.11"
 chrono = "0.4"
 sysinfo = "0.30"
+image = "0.25"
 
 # --- Computação Numérica ---
 ndarray = "0.15"
 # Para performance máxima, ative a feature blas
 # ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
 
-# --- Salvamento de Imagem ---
-image = "0.25"
+# --- Salvar/Carregar Matrizes em formato binário ---
+ndarray-npy = "0.8"
+ndarray-rand = "0.14" # Necessário para gerar a matriz H
+rand_distr = "0.4"
