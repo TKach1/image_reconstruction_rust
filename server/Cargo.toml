@@ -14,12 +14,7 @@ chrono = "0.4"
 sysinfo = "0.30"
 image = "0.25"
 
-# --- Computação Numérica ---
+# Dependências para computação e leitura de arquivos
 ndarray = "0.15"
-# Para performance máxima, ative a feature blas
-# ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
-
-# --- Salvar/Carregar Matrizes em formato binário ---
-ndarray-npy = "0.8"
-ndarray-rand = "0.14" # Necessário para gerar a matriz H
-rand_distr = "0.4"
+csv = "1.3"
+uuid = { version = "1.8", features = ["v4"] }
