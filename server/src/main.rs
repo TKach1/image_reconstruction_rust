@@ -5,74 +5,91 @@ use common::{ReconstructionRequest, ReconstructionResult, ServerStatus};
 use std::sync::{Arc, Mutex};
 use sysinfo::System;
 use tokio::net::TcpListener;
+use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
+
+struct ReconstructionJob {
+    request: ReconstructionRequest, // Agora passamos a requisição inteira
+    responder: oneshot::Sender<ReconstructionResult>,
+}
 
 struct AppState {
     sys: Mutex<System>,
+    job_sender: mpsc::Sender<ReconstructionJob>,
 }
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
+    let (job_sender, mut job_receiver) = mpsc::channel::<ReconstructionJob>(10); // Fila com capacidade 10
+
+    tokio::spawn(async move {
+        println!("[Worker] Despachante de tarefas iniciado.");
+        while let Some(job) = job_receiver.recv().await {
+            let request = job.request; // Desempacota a requisição
+            println!("[Worker] Recebida nova tarefa do usuário {}", request.user_id);
+
+            let h_file = format!("H-{}.csv", request.model_id);
+            
+            let s_samples = request.g.len(); // S é o tamanho do 'g' recebido
+            let n_pixels = 900; // N = 30x30
+
+            let h_matrix = match reconstruction::read_h_matrix_from_csv(&h_file, s_samples, n_pixels) {
+                Ok(h) => h,
+                Err(e) => {
+                    eprintln!("[Worker] ERRO: Falha ao carregar o arquivo H: {}", e);
+                    continue;
+                }
+            };
+
+            let result = tokio::task::spawn_blocking(move || {
+                reconstruction::execute_cgnr(&request.algorithm_id, request.user_id, &h_matrix, &request.g)
+            }).await.unwrap();
+            
+            if let Err(e) = reconstruction::save_image(&result) {
+                eprintln!("[Worker] Erro ao salvar imagem: {}", e);
+            }
+
+            if job.responder.send(result).is_err() {
+                eprintln!("[Worker] Falha ao enviar resposta. O cliente provavelmente desistiu.");
+            }
+        }
+    });
+
     let shared_state = Arc::new(AppState {
         sys: Mutex::new(System::new_all()),
+        job_sender,
     });
+    
     let app = Router::new()
         .route("/reconstruct", post(handle_reconstruction))
         .route("/status", get(handle_status))
         .with_state(shared_state);
+
     let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
     println!("[Servidor] Ouvindo em http://127.0.0.1:3000");
     axum::serve(listener, app).await.unwrap();
 }
 
-/// Handler que recebe a requisição leve e carrega os dados do disco.
 async fn handle_reconstruction(
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<ReconstructionRequest>,
-) -> (StatusCode, Json<ReconstructionResult>) {
-    println!("[Servidor] Recebida requisição do usuário {} para o modelo {}", payload.user_id, payload.model_id);
-
-    // Define os arquivos com base no model_id
-    let h_file = format!("H-{}.csv", payload.model_id);
-    let g_file = format!("g-{}-1.csv", payload.model_id); // Assumindo o sufixo -1
-    //let g_file = format!("g-{}-2.csv", payload.model_id); // Assumindo o sufixo -2
-    //let g_file = format!("A-{}-1.csv", payload.model_id); // Assumindo o sufixo -1
-
-    // Carrega o vetor g para saber o número de amostras S
-    let g_vector = match reconstruction::read_g_vector_from_csv(&g_file) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("[Servidor] ERRO: Falha ao carregar o arquivo g ({}): {}", g_file, e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ReconstructionResult::default()));
-        }
-    };
-    
-    let s_samples = g_vector.len(); // S é definido pelo tamanho de g
-    let n_pixels = 900; // N = 30x30 = 900
-
-    // Carrega a matriz H com as dimensões corretas
-    let h_matrix = match reconstruction::read_h_matrix_from_csv(&h_file, s_samples, n_pixels) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("[Servidor] ERRO: Falha ao carregar o arquivo H ({}): {}", h_file, e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ReconstructionResult::default()));
-        }
+) -> Result<Json<ReconstructionResult>, StatusCode> {
+    let (response_sender, response_receiver) = oneshot::channel();
+    let job = ReconstructionJob {
+        request: payload,
+        responder: response_sender,
     };
 
-    // Clona os dados necessários para o thread de processamento
-    let user_id = payload.user_id;
-    let algorithm_id = payload.algorithm_id;
-
-    let result = tokio::task::spawn_blocking(move || {
-        println!("[Servidor] Executando algoritmo {}...", algorithm_id.to_uppercase());
-        // Aqui você poderia ter um `if` para escolher o algoritmo se quisesse
-        reconstruction::execute_cgnr(&algorithm_id, user_id, &h_matrix, &g_vector)
-    }).await.unwrap();
-
-    if let Err(e) = reconstruction::save_image(&result) {
-        eprintln!("[Servidor] Erro ao salvar imagem: {}", e);
+    if state.job_sender.try_send(job).is_err() {
+        println!("[Servidor] REJEITADO: A fila de tarefas está cheia. Saturação evitada.");
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
-
-    (StatusCode::OK, Json(result))
+    
+    match response_receiver.await {
+        Ok(result) => Ok(Json(result)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 async fn handle_status(State(state): State<Arc<AppState>>) -> (StatusCode, Json<ServerStatus>) {
