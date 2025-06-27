@@ -77,7 +77,7 @@ pub fn execute_cgnr(
         let w = h.dot(&p);
         let w_t_w = w.dot(&w);
 
-        if w_t_w.abs() < 1e-20 { // Aumentei a tolerância para segurança
+        if w_t_w.abs() < 1e-20 {
             println!("[DEBUG] Iteração {}: CONDIÇÃO DE PARADA! w_t_w (||w||^2) é quase zero ({:.4e}).", i, w_t_w);
             break;
         }
@@ -129,7 +129,7 @@ pub fn execute_cgnr(
     }
 }
 
-/// Salva a imagem, aplicando a inversão vertical CORRETA.
+/// Salva a imagem, aplicando a inversão vertical.
 pub fn save_image(result: &ReconstructionResult) -> Result<(), Box<dyn std::error::Error>> {
     let (height, width) = result.image_pixels;
     if height * width != result.f.len() {

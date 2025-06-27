@@ -42,7 +42,14 @@ async fn main() {
 async fn run_reconstruction_loop(client: reqwest::Client) {
     let mut count = 0;
     
-    let signal_files = ["g-30x30-1.csv", "g-30x30-2.csv", "A-30x30-1.csv"];
+    let signal_files = [
+        "g-30x30-1.csv", 
+        "g-30x30-2.csv", 
+        //"A-30x30-1.csv", 
+        "G-60x60-1.csv", 
+        "G-60x60-2.csv", 
+        //"A-60x60-1.csv"
+    ];
 
     loop {
         count += 1;
@@ -63,10 +70,17 @@ async fn run_reconstruction_loop(client: reqwest::Client) {
             }
         };
 
+        // Inferir model_id com base no nome do arquivo CSV
+        let model_id = if signal_file_to_load.contains("60x60") {
+            "60x60"
+        } else {
+            "30x30"
+        };
+
         let request = ReconstructionRequest {
             user_id: Uuid::new_v4(),
             algorithm_id: "CGNR".to_string(),
-            model_id: "30x30".to_string(),
+            model_id: model_id.to_string(),
             g: g_vector,
         };
 

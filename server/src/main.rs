@@ -26,13 +26,21 @@ async fn main() {
     tokio::spawn(async move {
         println!("[Worker] Despachante de tarefas iniciado.");
         while let Some(job) = job_receiver.recv().await {
-            let request = job.request; // Desempacota a requisição
+            let request = job.request;
             println!("[Worker] Recebida nova tarefa do usuário {}", request.user_id);
 
             let h_file = format!("H-{}.csv", request.model_id);
-            
-            let s_samples = request.g.len(); // S é o tamanho do 'g' recebido
-            let n_pixels = 900; // N = 30x30
+
+            let s_samples = request.g.len();
+
+            let n_pixels: usize = match request.model_id.as_str() {
+                "30x30" => 30 * 30,
+                "60x60" => 60 * 60,
+                other => {
+                    eprintln!("[Worker] ERRO: model_id '{}' não suportado.", other);
+                    continue;
+                }
+            };
 
             let h_matrix = match reconstruction::read_h_matrix_from_csv(&h_file, s_samples, n_pixels) {
                 Ok(h) => h,
@@ -45,15 +53,18 @@ async fn main() {
             let result = tokio::task::spawn_blocking(move || {
                 reconstruction::execute_cgnr(&request.algorithm_id, request.user_id, &h_matrix, &request.g)
             }).await.unwrap();
-            
+
             if let Err(e) = reconstruction::save_image(&result) {
                 eprintln!("[Worker] Erro ao salvar imagem: {}", e);
             }
+
+            //RELATORIO FINAL
 
             if job.responder.send(result).is_err() {
                 eprintln!("[Worker] Falha ao enviar resposta. O cliente provavelmente desistiu.");
             }
         }
+
     });
 
     let shared_state = Arc::new(AppState {
