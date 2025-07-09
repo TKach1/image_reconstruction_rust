@@ -1,19 +1,9 @@
 use chrono::{DateTime, Utc};
-use ndarray::{Array1, Array2};
+use ndarray::Array1;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// DEPOIS: A requisição volta a carregar o vetor de sinal 'g'.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ReconstructionRequest {
-    pub user_id: Uuid,
-    pub algorithm_id: String,
-    pub model_id: String, // Ex: "30x30"
-    pub g: Array1<f64>,   // Vetor de sinal enviado pelo cliente
-}
-
-// O resto do arquivo (ReconstructionResult, ServerStatus, etc.) não muda.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReconstructionResult {
     pub user_id: Uuid,
     pub algorithm_id: String,
@@ -23,6 +13,32 @@ pub struct ReconstructionResult {
     pub image_pixels: (usize, usize),
     pub iterations: usize,
     pub f: Array1<f64>,
+}
+
+// Adicionar uma implementação para facilitar a criação de erros.
+impl ReconstructionResult {
+    pub fn new_error(user_id: Uuid, algorithm_id: String) -> Self {
+        let now = Utc::now();
+        Self {
+            user_id,
+            algorithm_id,
+            start_time: now,
+            end_time: now,
+            reconstruction_time_ms: 0,
+            image_pixels: (0, 0),
+            iterations: 0,
+            f: Array1::zeros(0),
+        }
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ReconstructionRequest {
+    pub user_id: Uuid, // ALTERADO: de u32 para Uuid
+    pub model_id: String,
+    pub algorithm_id: String,
+    pub g: Vec<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
